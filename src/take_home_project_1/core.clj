@@ -41,16 +41,8 @@
 (defn assign-top [stack]
   (peek @stack))
 
-(defn process-arguments
-  "Return a let statement with the list of variables, assigned to atoms."
-  [args]
-  (reduce (fn [accum arg]
-            (if (variable? arg)
-              (conj accum arg `(atom ~arg))
-              accum))
-          [] args))
-
 (defn arg-symbols
+  "Given an argument list, return a list of symbols that are variables."
   [args]
   (reduce (fn [accum arg]
             (if (variable? arg)
@@ -59,6 +51,7 @@
           [] args))
 
 (defn body-symbols
+  "Given a defstackfn body, return a set of symbols that are variables."
   [body]
   (walk/walk (fn [form]
                (when (assignment? form)
@@ -70,16 +63,21 @@
                     (into #{}))) body))
 
 (defn declare-arg-locals
+  "Takes a list of symbols and returns a list of locals declarations.
+  This is spliced into a let binding. The locals are initialized to the argument values."
   [args]
   (reduce (fn [accum arg] (conj accum arg `(atom ~arg)))
           [] args))
 
 (defn declare-body-locals
+  "Takes a set of symbols and returns a list of locals declarations.
+  This is spliced into a let binding. The locals are initialized to nil."
   [locals]
   (reduce (fn [accum local] (conj accum local `(atom nil)))
           [] locals))
 
 (defn if-reducer
+  "Takes an if form and returns a vector of two forms, the then and else branches."
   [form]
   (let [{:keys [then else]} (reduce (fn [accum form]
                                       (if (else? form)
@@ -92,7 +90,9 @@
                                      :else []} (rest form))]
     [then else]))
 
-(defn process-body
+(defn compile-body
+  "Generate the body of a defstackfn function. Takes a stack name and a body (macro).
+  Compiles the body into a series of stack operations."
   [stack-name body]
   (walk/walk (fn [form]
                (cond
@@ -107,12 +107,13 @@
                        [then else] (if-reducer form)]
                    `(let [~@(declare-body-locals symbols)]
                       (if (pop-item! ~stack-name)
-                        (do ~@(process-body stack-name then))
-                        (do ~@(process-body stack-name else)))))
+                        (do ~@(compile-body stack-name then))
+                        (do ~@(compile-body stack-name else)))))
                  :else
                  `(push-item! ~stack-name ~form))) identity body))
 
 (defmacro defstackfn
+  "Macro for the stack function DSL. Takes a form, an argument list, and a body."
   [form args & body]
   (let [stack-name (gensym 'stack)
         arg-symbols (arg-symbols args)
@@ -121,7 +122,7 @@
        (let [~stack-name (atom [])
              ~@(declare-arg-locals arg-symbols)
              ~@(declare-body-locals body-symbols)]
-         ~@(process-body stack-name body)
+         ~@(compile-body stack-name body)
          (pop-item! ~stack-name)))))
 
 (defn -main
