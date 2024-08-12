@@ -105,10 +105,12 @@
                  (if? form)
                  (let [symbols (body-symbols (rest form))
                        [then else] (if-reducer form)]
-                   `(let [~@(declare-body-locals symbols)]
-                      (if (pop-item! ~stack-name)
-                        (do ~@(compile-body stack-name then))
-                        (do ~@(compile-body stack-name else)))))
+                   (if (seq else)
+                     `(let [~@(declare-body-locals symbols)]
+                        (if (pop-item! ~stack-name)
+                          (do ~@(compile-body stack-name then))
+                          (do ~@(compile-body stack-name else))))
+                     (throw (IllegalArgumentException. "if> requires an else> branch"))))
                  :else
                  `(push-item! ~stack-name ~form))) identity body))
 
