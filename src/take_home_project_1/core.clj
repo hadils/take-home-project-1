@@ -119,28 +119,11 @@
         arg-symbols (arg-symbols args)
         body-symbols (body-symbols body)]
     `(defn ~form ~args
-       (let [~stack-name (atom [])
-             ~@(declare-arg-locals arg-symbols)
-             ~@(declare-body-locals body-symbols)]
-         ~@(compile-body stack-name body)
-         (pop-item! ~stack-name)))))
-
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
-  (println "Hello, World!"))
-
-(comment
-  (defstackfn f [!a !b !c]
-    !a
-    !b
-    (invoke> + 2)
-    !v1+
-    !c
-    !c
-    <pop>
-    2
-    (invoke> * 2)
-    !v2+
-    (invoke> = 2)
-    (if> !v1 !v2 (invoke> - 2) else> "false!" (invoke> println 1) <pop> !v1 !v2 (invoke> * 2))))
+       (try
+         (let [~stack-name (atom [])
+               ~@(declare-arg-locals arg-symbols)
+               ~@(declare-body-locals body-symbols)]
+           ~@(compile-body stack-name body)
+           (pop-item! ~stack-name))
+         (catch IllegalStateException ~'_
+           (throw (IllegalStateException. "Invalid stack operation")))))))
