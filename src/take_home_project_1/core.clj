@@ -4,6 +4,10 @@
             [clojure.walk :as walk])
   (:gen-class))
 
+(defn constant? [s]
+  (or (number? s) (string? s) (coll? s) (boolean? s) (keyword? s)
+      (nil? s)))
+
 (defn variable? [s]
   (and (symbol? s) (str/starts-with? (str s) "!")))
 
@@ -96,6 +100,7 @@
   [stack-name body]
   (walk/walk (fn [form]
                (cond
+                 (constant? form) `(push-item! ~stack-name ~form)
                  (assignment? form) `(reset! ~(symbol (get-variable-from-assignment form)) (assign-top ~stack-name))
                  (variable? form) `(push-item! ~stack-name (deref ~form))
                  (pop? form) `(pop-item! ~stack-name)
@@ -112,7 +117,7 @@
                           (do ~@(compile-body stack-name else))))
                      (throw (IllegalArgumentException. "if> requires an else> branch"))))
                  :else
-                 `(push-item! ~stack-name ~form))) identity body))
+                 (throw (IllegalArgumentException. "Invalid DSL code")))) identity body))
 
 (defmacro defstackfn
   "Macro for the stack function DSL. Takes a form, an argument list, and a body."
