@@ -7,10 +7,6 @@
     (is (= '[!a !b] (arg-symbols '[!a !b])))
     (is (= '[!a !b] (arg-symbols '[!a x !b y])))))
 
-(deftest body-symbols-test
-  (testing "find symbols in a body"
-    (is (= #{'!a '!b} (body-symbols '(!a+ !b+ 1 2 <pop>))))))
-
 (defstackfn assignment-test-fn []
   1 !b+)
 

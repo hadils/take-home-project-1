@@ -5,14 +5,14 @@
   (:gen-class))
 
 (defn constant? [s]
-  (or (number? s) (string? s) (coll? s) (boolean? s) (keyword? s)
+  (or (number? s) (string? s) (boolean? s) (keyword? s)
       (nil? s)))
 
 (defn variable? [s]
-  (and (symbol? s) (str/starts-with? (str s) "!")))
+  (and (symbol? s) (str/starts-with? (str s) "!") (not (str/ends-with? (str s) "+"))))
 
 (defn assignment? [s]
-  (and (variable? s) (str/ends-with? (str s) "+")))
+  (and (str/starts-with? (str s) "!") (str/ends-with? (str s) "+")))
 
 (defn get-variable-from-assignment
   [s]
@@ -95,42 +95,41 @@
     [then else]))
 
 (defn compile-body
-  "Generate the body of a defstackfn function. Takes a stack name and a body (macro).
-  Compiles the body into a series of stack operations."
-  [stack-name body]
-  (walk/walk (fn [form]
-               (cond
-                 (constant? form) `(push-item! ~stack-name ~form)
-                 (assignment? form) `(reset! ~(symbol (get-variable-from-assignment form)) (assign-top ~stack-name))
-                 (variable? form) `(push-item! ~stack-name (deref ~form))
-                 (pop? form) `(pop-item! ~stack-name)
-                 (invoke? form)
-                 (let [[_ func arity] form]
-                   `(push-item! ~stack-name (~func ~@(repeat arity `(pop-item! ~stack-name)))))
-                 (if? form)
-                 (let [symbols (body-symbols (rest form))
-                       [then else] (if-reducer form)]
-                   (if (seq else)
-                     `(let [~@(declare-body-locals symbols)]
-                        (if (pop-item! ~stack-name)
-                          (do ~@(compile-body stack-name then))
-                          (do ~@(compile-body stack-name else))))
-                     (throw (IllegalArgumentException. "if> requires an else> branch"))))
-                 :else
-                 (throw (IllegalArgumentException. "Invalid DSL code")))) identity body))
+  [stack-name var-table body]
+  (let [form (first body)]
+    (when form
+      (cond
+        (variable? form) (if (var-table form)
+                           `((push-item! ~stack-name ~form)
+                             ~@(compile-body stack-name var-table (rest body)))
+                           (throw (IllegalArgumentException. (str "Variable " form " not found."))))
+        (assignment? form) (let [var (symbol (get-variable-from-assignment form))]
+                             `((let [~var (assign-top ~stack-name)]
+                                 ~@(compile-body stack-name  (conj var-table var) (rest body)))))
+        (pop? form) `((pop-item! ~stack-name)
+                      ~@(compile-body stack-name var-table (rest body)))
+        (invoke? form) (let [[_ func arity] form]
+                         `((push-item! ~stack-name (~func ~@(repeat arity `(pop-item! ~stack-name))))
+                           ~@(compile-body stack-name var-table (rest body))))
+        (if? form) (let [[then else] (if-reducer form)]
+                     (if (seq else)
+                       `((if (pop-item! ~stack-name)
+                           (do ~@(compile-body stack-name var-table then))
+                           (do ~@(compile-body stack-name var-table else)))
+                         ~@(compile-body stack-name var-table (rest body)))
+                       (throw (IllegalArgumentException. "if> requires an else> branch"))))
+        :else  `((push-item! ~stack-name ~form)
+                 ~@(compile-body stack-name var-table (rest body)))))))
 
 (defmacro defstackfn
   "Macro for the stack function DSL. Takes a form, an argument list, and a body."
   [form args & body]
   (let [stack-name (gensym 'stack)
-        arg-symbols (arg-symbols args)
-        body-symbols (body-symbols body)]
+        arg-vars (into #{} (arg-symbols args))]
     `(defn ~form ~args
        (try
-         (let [~stack-name (atom [])
-               ~@(declare-arg-locals arg-symbols)
-               ~@(declare-body-locals body-symbols)]
-           ~@(compile-body stack-name body)
+         (let [~stack-name (atom [])]
+           ~@(compile-body stack-name arg-vars body)
            (pop-item! ~stack-name))
          (catch IllegalStateException ~'_
            (throw (IllegalStateException. "Invalid stack operation")))))))
